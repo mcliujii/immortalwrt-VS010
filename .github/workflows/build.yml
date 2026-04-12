@@ -41,14 +41,14 @@ jobs:
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
           
           # 5. IPTV 与 工具
-          #echo "CONFIG_PACKAGE_luci-app-udpxy=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-udpxy=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-wol=y" >> .config
 
           # 6. 统计图表 (建议暂时精简，防止因依赖过多导致编译失败)
-          #echo "CONFIG_PACKAGE_luci-app-statistics=y" >> .config
-          #echo "CONFIG_PACKAGE_collectd-mod-cpu=y" >> .config
-          #echo "CONFIG_PACKAGE_collectd-mod-interface=y" >> .config
-          #echo "CONFIG_PACKAGE_collectd-mod-load=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-statistics=y" >> .config
+          echo "CONFIG_PACKAGE_collectd-mod-cpu=y" >> .config
+          echo "CONFIG_PACKAGE_collectd-mod-interface=y" >> .config
+          echo "CONFIG_PACKAGE_collectd-mod-load=y" >> .config
 
           # 7. 必须执行：强制补全所有缺失的底层依赖
           make defconfig
