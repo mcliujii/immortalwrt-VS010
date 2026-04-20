@@ -447,10 +447,14 @@ TARGET_DEVICES += yuncore_ax850
 
 define Device/cucc_vs010
 	$(call Device/FitImage)
+	$(call Device/UbiFit)
 	DEVICE_VENDOR := CUCC
 	DEVICE_MODEL := VS010
 	DEVICE_DTS := ipq5018-vs010
-    KERNEL_SIZE := 8192k
+	KERNEL_IN_UBI := 1
+	BLOCKSIZE := 128k
+	PAGESIZE := 2048
+	NAND_SIZE := 128m
 	DEVICE_PACKAGES := kmod-qca-nss-drv kmod-qca-nss-ecm kmod-qca-wifi-qsdk ath11k-firmware-ipq5018
 endef
 TARGET_DEVICES += cucc_vs010
