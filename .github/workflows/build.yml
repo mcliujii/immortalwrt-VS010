@@ -1,11 +1,11 @@
-name: Build VS010 Firmware
+name: Build VS010 Firmware (UBI Fixed)
 
 on:
-  workflow_dispatch: # 允许手动点击按钮启动
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04 # 使用稳定的 22.04 环境
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -17,41 +17,108 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Patch VS010 Device Definition (Fix UBI/NAND)
+        run: |
+          python3 << 'PYEOF'
+          import re
+
+          mk_path = "target/linux/qualcommax/image/ipq50xx.mk"
+
+          with open(mk_path, "r") as f:
+              content = f.read()
+
+          old_def = """define Device/cucc_vs010
+          \t$(call Device/FitImage)
+          \tDEVICE_VENDOR := CUCC
+          \tDEVICE_MODEL := VS010
+          \tDEVICE_DTS := ipq5018-vs010
+          \tDEVICE_PACKAGES := kmod-qca-nss-drv kmod-qca-nss-ecm kmod-qca-wifi-qsdk ath11k-firmware-ipq5018
+          endef"""
+
+          new_def = """define Device/cucc_vs010
+          \t$(call Device/FitImage)
+          \t$(call Device/UbiFit)
+          \tDEVICE_VENDOR := CUCC
+          \tDEVICE_MODEL := VS010
+          \tDEVICE_DTS := ipq5018-vs010
+          \tSOC := ipq5018
+          \tBLOCKSIZE := 128k
+          \tPAGESIZE := 2048
+          \tKERNEL_SIZE := 8192k
+          \tIMAGE_SIZE := 108032k
+          \tNAND_SIZE := 128m
+          \tDEVICE_PACKAGES := kmod-qca-nss-drv kmod-qca-nss-ecm kmod-qca-wifi-qsdk ath11k-firmware-ipq5018
+          endef"""
+
+          if old_def in content:
+              content = content.replace(old_def, new_def)
+              print("[OK] Device definition patched successfully!")
+          else:
+              pattern = r'define Device/cucc_vs010\n\t\$\(call Device/FitImage\)\n\tDEVICE_VENDOR := CUCC\n\tDEVICE_MODEL := VS010\n\tDEVICE_DTS := ipq5018-vs010\n\tDEVICE_PACKAGES := kmod-qca-nss-drv kmod-qca-nss-ecm kmod-qca-wifi-qsdk ath11k-firmware-ipq5018\nendef'
+              match = re.search(pattern, content)
+              if match:
+                  content = content[:match.start()] + new_def + content[match.end():]
+                  print("[OK] Device definition patched (regex fallback)!")
+              else:
+                  print("[ERROR] Could not find VS010 device definition!")
+                  idx = content.find("cucc_vs010")
+                  if idx >= 0:
+                      print(content[max(0,idx-200):idx+400])
+                  raise SystemExit(1)
+
+          with open(mk_path, "w") as f:
+              f.write(content)
+
+          with open(mk_path, "r") as f:
+              verify = f.read()
+          if "UbiFit" in verify and "BLOCKSIZE" in verify:
+              print("[OK] Verification passed: UbiFit + BLOCKSIZE found")
+          else:
+              print("[ERROR] Verification failed!")
+              raise SystemExit(1)
+          PYEOF
+
       - name: Generate .config
         run: |
-          # 1. 基础目标机型
+          # 1. Target device
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq50xx=y" >> .config
           echo "CONFIG_TARGET_qualcommax_ipq50xx_DEVICE_cucc_vs010=y" >> .config
 
-          # 2. 核心网络驱动 (VS010 联网的关键)
+          # 2. Enable initramfs (for factory flashing via TFTP)
+          echo "CONFIG_TARGET_ROOTFS_INITRAMFS=y" >> .config
+
+          # 3. Core network drivers
           echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm-standard=y" >> .config
-          
-          # 3. 闭源 QSDK WiFi 驱动 (注意：删除之前的 ath11k 开源固件，改用 QSDK 方案)
+
+          # 4. WiFi driver
           echo "CONFIG_PACKAGE_kmod-qca-wifi-qsdk=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-wifi-qsdk-db=y" >> .config
-          
-          # 4. LuCI 与 基础 UI
+
+          # 5. LuCI + Theme
           echo "CONFIG_PACKAGE_luci=y" >> .config
           echo "CONFIG_PACKAGE_luci-theme-argon=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
-          
-          # 5. IPTV 与 工具
+
+          # 6. IPTV & Tools
           echo "CONFIG_PACKAGE_luci-app-udpxy=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-wol=y" >> .config
 
-          # 6. 统计图表 (建议暂时精简，防止因依赖过多导致编译失败)
+          # 7. Statistics
           echo "CONFIG_PACKAGE_luci-app-statistics=y" >> .config
           echo "CONFIG_PACKAGE_collectd-mod-cpu=y" >> .config
           echo "CONFIG_PACKAGE_collectd-mod-interface=y" >> .config
           echo "CONFIG_PACKAGE_collectd-mod-load=y" >> .config
 
-          # 7. 必须执行：强制补全所有缺失的底层依赖
+          # Force resolve all dependencies
           make defconfig
+
+          echo "=== Build Config Summary ==="
+          grep -E "CONFIG_TARGET_|CONFIG_PACKAGE_luci|CONFIG_PACKAGE_kmod-qca|ROOTFS_INITRAMFS" .config
 
       - name: Make Download
         run: make download -j8
@@ -59,8 +126,17 @@ jobs:
       - name: Compile Firmware
         run: make -j$(nproc) || make -j1 V=s
 
-      - name: Upload Artifact
+      - name: List Output Files
+        run: |
+          echo "=== All output files ==="
+          find bin/targets/qualcommax/ipq50xx/ -type f -name "*.bin" -o -name "*.itb" -o -name "*.ubi" 2>/dev/null | sort
+          echo ""
+          echo "=== File sizes ==="
+          ls -lh bin/targets/qualcommax/ipq50xx/ 2>/dev/null || echo "No output files found"
+
+      - name: Upload All Firmware Files
         uses: actions/upload-artifact@v4
         with:
           name: VS010-ImmortalWrt-Firmware
-          path: bin/targets/qualcommax/ipq50xx/*.bin
+          path: bin/targets/qualcommax/ipq50xx/
+          if-no-files-found: error
