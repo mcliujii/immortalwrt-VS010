@@ -45,6 +45,7 @@ jobs:
           \tBLOCKSIZE := 128k
           \tPAGESIZE := 2048
           \tKERNEL_SIZE := 8192k
+          \tKERNEL_IN_UBI := 1
           \tIMAGE_SIZE := 108032k
           \tNAND_SIZE := 128m
           \tDEVICE_PACKAGES := kmod-qca-nss-drv kmod-qca-nss-ecm kmod-qca-wifi-qsdk ath11k-firmware-ipq5018
